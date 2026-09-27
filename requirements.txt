@@ -5,3 +5,5 @@ numpy>=1.26
 matplotlib>=3.8
 streamlit>=1.35
 pandas>=2.2
+torch>=2.2
+shap>=0.45

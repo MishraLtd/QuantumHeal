@@ -28,12 +28,19 @@ import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, precision_score, roc_curve, auc
 
-import hybrid_qml_mvp as core
-from imaging_arm import load_synthetic_xrays, ImageFeaturePipeline, N_QUBITS_IMG
-from fusion import LateFusion
+from engine import hybrid_qml_mvp as core
+from engine.imaging_arm import (
+    load_synthetic_xrays,
+    ImageFeaturePipeline,
+    N_QUBITS_IMG,
+)
+from engine.fusion import LateFusion
 
-OUT_DIR = "mvp_outputs"
-os.makedirs(OUT_DIR, exist_ok=True)
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+OUT_DIR = PROJECT_ROOT / "outputs"
+OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def main():

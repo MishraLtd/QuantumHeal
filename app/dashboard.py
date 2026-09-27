@@ -7,15 +7,26 @@ Run with:  streamlit run dashboard.py
  or click "Train now" in the sidebar to train live inside the app.)
 """
 import os
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 import streamlit as st
 import numpy as np
 import pandas as pd
 from sklearn.datasets import load_breast_cancer
 from sklearn.model_selection import train_test_split
 
-import hybrid_qml_mvp as core
-from imaging_arm import load_synthetic_xrays, ImageFeaturePipeline, N_QUBITS_IMG
-from fusion import LateFusion
+from engine import hybrid_qml_mvp as core
+from engine.imaging_arm import (
+    load_synthetic_xrays,
+    ImageFeaturePipeline,
+    N_QUBITS_IMG,
+)
+from engine.fusion import LateFusion
 
 st.set_page_config(page_title="QuantumHealth Sentinel", layout="wide")
 

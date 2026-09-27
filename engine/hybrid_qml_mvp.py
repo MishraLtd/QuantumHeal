@@ -53,8 +53,11 @@ from sklearn.inspection import permutation_importance
 import pennylane as qml
 from pennylane import numpy as pnp
 
-OUT_DIR = "mvp_outputs"
-os.makedirs(OUT_DIR, exist_ok=True)
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+OUT_DIR = PROJECT_ROOT / "outputs"
+OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 N_QUBITS = 4          # keep small & NISQ-friendly (qubit-efficient design)
 N_LAYERS = 3           # variational circuit depth
