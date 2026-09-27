@@ -14,6 +14,8 @@ from sklearn.datasets import load_breast_cancer
 from sklearn.model_selection import train_test_split
 
 import hybrid_qml_mvp as core
+from imaging_arm import load_synthetic_xrays, ImageFeaturePipeline, N_QUBITS_IMG
+from fusion import LateFusion
 
 st.set_page_config(page_title="QuantumHealth Sentinel", layout="wide")
 
@@ -48,12 +50,41 @@ def get_trained_model():
         "feature_names": feature_names,
     }
 
+@st.cache_resource(show_spinner="Training multimodal (tabular + imaging) arms...")
+def get_multimodal_state():
+    X_tab, y, feature_names = core.load_data()
+    idx_train, idx_test, y_train, y_test = train_test_split(
+        np.arange(len(y)), y, test_size=0.25, random_state=core.SEED, stratify=y
+    )
+    images_all = load_synthetic_xrays(y, seed=core.SEED)
+    img_train, img_test = images_all[idx_train], images_all[idx_test]
+
+    X_tab_train, X_tab_test, _, _ = core.preprocess(X_tab[idx_train], X_tab[idx_test])
+    tab_arm = core.build_vqc_arm(n_qubits=core.N_QUBITS)
+    tab_w, tab_b, _ = tab_arm["train"](X_tab_train, y_train)
+    tab_preds, tab_probs = tab_arm["predict"](tab_w, tab_b, X_tab_test)
+
+    img_pipeline = ImageFeaturePipeline(n_components=N_QUBITS_IMG)
+    X_img_train = img_pipeline.fit_transform(img_train)
+    X_img_test = img_pipeline.transform(img_test)
+    img_arm = core.build_vqc_arm(n_qubits=N_QUBITS_IMG)
+    img_w, img_b, _ = img_arm["train"](X_img_train, y_train)
+    img_preds, img_probs = img_arm["predict"](img_w, img_b, X_img_test)
+
+    return {
+        "y_test": y_test, "img_test": img_test,
+        "tab_probs": tab_probs, "img_probs": img_probs,
+    }
+
 if run_button:
     get_trained_model.clear()
+    get_multimodal_state.clear()
 
 state = get_trained_model()
 
-tab1, tab2, tab3 = st.tabs(["📋 Patient Screening", "📊 Benchmark", "🔍 Explainability"])
+tab1, tab2, tab3, tab4 = st.tabs(
+    ["📋 Patient Screening", "📊 Benchmark", "🔍 Explainability", "🩻 Multimodal Screening (Phase 1)"]
+)
 
 with tab1:
     st.subheader("Screen a patient sample")
@@ -106,6 +137,51 @@ with tab3:
         "Influence on PC1": [loadings[i] for i in order],
     })
     st.bar_chart(df2.set_index("Biomarker"))
+
+with tab4:
+    st.subheader("Multimodal screening — tabular + imaging fusion (Phase 1)")
+    st.caption(
+        "⚠️ Imaging modality uses a **synthetic** X-ray-style generator for this "
+        "phase — no network access to real medical imaging datasets from this "
+        "environment. Architecture is dataset-agnostic; swapping in real X-rays "
+        "is a Phase 2 item (see `imaging_arm.py`)."
+    )
+    mm_state = get_multimodal_state()
+
+    idx2 = st.slider(
+        "Pick a test-set patient", 0, len(mm_state["y_test"]) - 1, 0, key="mm_slider"
+    )
+    imaging_available = st.toggle("Imaging on file for this patient?", value=True)
+
+    fusion = LateFusion()
+    if imaging_available:
+        fused_p, fused_pred, contrib = fusion.fuse(
+            tabular_prob=mm_state["tab_probs"][idx2:idx2 + 1],
+            imaging_prob=mm_state["img_probs"][idx2:idx2 + 1],
+        )
+    else:
+        fused_p, fused_pred, contrib = fusion.fuse(
+            tabular_prob=mm_state["tab_probs"][idx2:idx2 + 1]
+        )
+
+    col_a, col_b = st.columns([1, 2])
+    with col_a:
+        st.image(
+            mm_state["img_test"][idx2], caption="Synthetic X-ray-style scan",
+            width=220, clamp=True
+        )
+    with col_b:
+        st.metric("Fused prediction",
+                   "⚠️ Disease" if fused_pred[0] == 1 else "✅ No disease",
+                   f"{fused_p[0]*100:.1f}% confidence")
+        st.write("**Per-modality contribution to this call:**", contrib)
+        st.write("**Ground truth:**",
+                  "Disease" if mm_state["y_test"][idx2] == 1 else "No disease")
+        if not imaging_available:
+            st.info(
+                "Imaging unavailable for this patient — the platform gracefully "
+                "degraded to the tabular arm alone rather than failing."
+            )
 
 st.divider()
 st.caption("MVP prototype — Qiskit/PennyLane-based hybrid QML, "

@@ -168,6 +168,61 @@ def vqc_predict(weights, bias, X):
 
 
 # ----------------------------------------------------------------------
+# 3b. GENERIC VQC "ARM" FACTORY  (Phase 1 — multimodal expansion)
+# ----------------------------------------------------------------------
+# The tabular pipeline above (dev/circuit/train_vqc/vqc_predict) is left
+# untouched for backward compatibility with the existing MVP + dashboard.
+# For the multimodal platform, each additional data modality (imaging,
+# lab-panel text, etc.) gets its OWN small quantum circuit — an "arm" —
+# built by this factory, so arms don't share device/wire state. Arms are
+# combined afterwards by fusion.py, not inside the quantum layer itself.
+def build_vqc_arm(n_qubits, n_layers=N_LAYERS, seed=SEED):
+    """Returns an independent {train, predict} VQC arm bound to its own
+    n_qubits-wide quantum device. Used for e.g. the imaging modality in
+    imaging_arm.py, kept separate from the original tabular arm above."""
+    dev_arm = qml.device("default.qubit", wires=n_qubits)
+
+    @qml.qnode(dev_arm)
+    def circuit_arm(weights, x):
+        qml.AngleEmbedding(x, wires=range(n_qubits), rotation="Y")
+        qml.BasicEntanglerLayers(weights, wires=range(n_qubits))
+        return qml.expval(qml.PauliZ(0))
+
+    def classifier(weights, bias, x):
+        return circuit_arm(weights, x) + bias
+
+    def train(X_train, y_train, n_steps=N_STEPS, lr=LEARNING_RATE, batch_size=20):
+        y_pm = 2 * y_train - 1
+        weights = pnp.random.uniform(
+            low=-np.pi, high=np.pi, size=(n_layers, n_qubits), requires_grad=True
+        )
+        bias = pnp.array(0.0, requires_grad=True)
+        opt = qml.AdamOptimizer(stepsize=lr)
+        rng = np.random.RandomState(seed)
+        loss_history = []
+        for step in range(n_steps):
+            bs = min(batch_size, len(X_train))
+            batch_idx = rng.randint(0, len(X_train), size=bs)
+            X_batch, y_batch = X_train[batch_idx], y_pm[batch_idx]
+
+            def cost(weights, bias):
+                preds = [classifier(weights, bias, x) for x in X_batch]
+                return square_loss(y_batch, preds)
+
+            weights, bias = opt.step(cost, weights, bias)
+            loss_history.append(float(cost(weights, bias)))
+        return weights, bias, loss_history
+
+    def predict(weights, bias, X):
+        raw = np.array([classifier(weights, bias, x) for x in X])
+        probs = np.clip((raw + 1) / 2, 0, 1)
+        preds = (raw > 0).astype(int)
+        return preds, probs
+
+    return {"train": train, "predict": predict, "n_qubits": n_qubits}
+
+
+# ----------------------------------------------------------------------
 # 4. CLASSICAL BASELINES
 # ----------------------------------------------------------------------
 def train_classical_baselines(X_train, y_train):
