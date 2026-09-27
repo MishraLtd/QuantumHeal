@@ -1,0 +1,25 @@
+{
+  "top_principal_component": "PC1",
+  "top_biomarkers": [
+    {
+      "feature": "mean concave points",
+      "loading": 0.26262994081053487
+    },
+    {
+      "feature": "mean concavity",
+      "loading": 0.2595488929788797
+    },
+    {
+      "feature": "worst concave points",
+      "loading": 0.2511964183676436
+    },
+    {
+      "feature": "mean compactness",
+      "loading": 0.24190558932911035
+    },
+    {
+      "feature": "worst perimeter",
+      "loading": 0.23718873381671413
+    }
+  ]
+}
