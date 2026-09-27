@@ -1,4 +1,5 @@
-# QuantumHealth Sentinel — MVP Prototype
+# QuantumHealth Sentinel — MVP
+
 ### SIH26139 · Hybrid Quantum-Classical ML Platform for Early Disease Detection
 
 A working, runnable proof-of-concept of the pipeline described in the idea deck:
