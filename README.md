@@ -106,5 +106,3 @@ The dashboard will start on `http://localhost:8501`.
 - **Compliance & Data Governance** — formal alignment with the DPDP Act (India) and equivalent international standards (e.g., HIPAA) for clinical-grade deployment.
 - **Synthetic Data Augmentation** — quantum-circuit-based generation of synthetic training samples to address the scarcity of large labelled medical imaging datasets.
 - **Continuous Validation** — an ongoing, expanding multi-domain validation report as the platform is trained on progressively larger and more diverse medical datasets.
-
-## License
