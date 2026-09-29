@@ -34,6 +34,7 @@ import logging
 import time
 from contextlib import asynccontextmanager
 from typing import List, Optional
+from fastapi.middleware.cors import CORSMiddleware
 
 import numpy as np
 from fastapi import FastAPI, Header, HTTPException
@@ -88,7 +89,12 @@ async def lifespan(app):
 
 
 app = FastAPI(title="QuantumHealth Sentinel API", version="0.3.0", lifespan=lifespan)
-
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class PredictRequest(BaseModel):
     patient_id: str = Field(..., description="Opaque ID; only a salted hash is logged")
