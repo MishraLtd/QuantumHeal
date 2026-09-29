@@ -1,108 +1,163 @@
-# QuantumHealth Sentinel — Hybrid Quantum-Classical Multimodal Diagnostic Platform
+# QuantumHealth Sentinel — MVP Prototype
+### SIH26139 · Hybrid Quantum-Classical ML Platform for Early Disease Detection
 
-Multimodal, quantum-enhanced early disease detection fusing structured lab data, radiology imaging, and hematology imaging into a single hybrid classifier — benchmarked live against classical baselines, with clinician-facing explainability and confidence-calibrated predictions.
+A working, runnable proof-of-concept of the pipeline described in the idea deck:
 
-## Overview
+```
+Data ingestion → Pre-processing (scale + PCA) → Quantum feature encoding
+→ Hybrid Variational Quantum Classifier → Explainability → Benchmarking
+→ Clinician dashboard
+```
 
-QuantumHealth Sentinel screens patients by combining three independent diagnostic signals — blood test panels, X-ray imaging, and blood cell microscopy — into a fused representation that is encoded onto qubits and classified via a Variational Quantum Classifier (VQC), running alongside classical SVM and Random Forest baselines for transparent, real-time comparison.
+## What's included
 
-The platform is disease-agnostic by design: the same ingestion → fusion → quantum-encoding → classification → explainability pipeline is built to be re-targeted across conditions (oncology, pneumonia, anemia, and beyond) by swapping data adapters, not by rebuilding the system.
+| File | Purpose |
+|---|---|
+| `hybrid_qml_mvp.py` | Core pipeline: trains a 4-qubit Variational Quantum Classifier (PennyLane) and two classical baselines (SVM, Random Forest) on the Breast Cancer Wisconsin dataset, benchmarks them, and generates explainability plots. |
+| `dashboard.py` | Streamlit clinician-facing demo UI: patient screening, live benchmark table, explainability view. |
+| `mvp_outputs/` | Generated on run: `benchmark_report.md`, ROC curves, confusion matrices, training curve, feature-importance chart. |
+| `requirements.txt` | Exact pinned dependencies for a clean install. |
 
-## Core Features
+## Why this dataset for the MVP
 
-### 1. Multimodal Diagnostic Fusion
-- **Structured Arm** — blood test reports (CBC, metabolic panels, lipid panels) parsed, scaled, and dimensionality-reduced via PCA.
-- **Radiology Arm** — X-ray imaging processed through a dedicated CNN feature extractor into compact diagnostic embeddings.
-- **Hematology Arm** — blood cell microscopy processed through a morphology-tuned CNN extractor, kept separate from the radiology model given the two domains' differing visual statistics.
-- **Graceful Degradation** — patients screened on partial data (e.g., labs only, no imaging) are still processed, with the dashboard flagging which modalities informed the result.
+The Breast Cancer Wisconsin (Diagnostic) dataset is a real, public, clinically-derived
+dataset (569 patients, 30 digitized-biopsy biomarkers, malignant/benign labels) that
+ships with scikit-learn — so the MVP runs **offline, in under a minute, with zero
+downloads**, which matters for a live hackathon demo. The pipeline is dataset-agnostic:
+swapping in TCGA genomics or MIMIC-III EHR data only means changing `load_data()`.
 
-### 2. Fusion Engine
-- **Late Fusion** — per-modality quantum classifiers combined via a lightweight classical aggregation head, with per-modality contribution fully traceable.
-- **Attention Fusion** — a learned attention layer dynamically weights each modality per patient (e.g., prioritizing an abnormal blood panel over a normal X-ray), the platform's core differentiator over static multimodal pipelines.
-
-### 3. Hybrid Quantum-Classical Classification
-- Fused, PCA-reduced feature vectors encoded onto qubits via angle/amplitude encoding.
-- Variational Quantum Classifier trained with a classical optimizer, simulator-executable with a direct path to NISQ hardware (Qiskit IBMQ, AWS Braket).
-- Classical SVM and Random Forest baselines run in parallel for continuous head-to-head validation.
-
-### 4. Live Benchmarking & Evaluation Suite
-- Accuracy, sensitivity, specificity, AUC, ROC curves, confusion matrices, and training curves reported across every model, quantum and classical, side by side.
-
-### 5. Per-Modality Explainability
-- SHAP-based attribution for classical components, permutation/Q-LIME-style analysis for the quantum classifier.
-- Dashboard reports not just *what* was predicted but *which modality and which features* drove the result.
-
-### 6. Confidence-Calibrated Predictions
-- Shot-based sampling from the variational quantum circuit produces a genuine confidence distribution per prediction, not a bare label — giving clinicians a calibrated sense of how certain the system is.
-
-### 7. Clinician Dashboard
-- Unified patient screening across all three modalities, live benchmark comparison, per-modality explainability views, and confidence-flagged results, built around real clinical review workflows.
-
-## Tech Stack
-
-**Quantum & ML Core:** PennyLane (VQC, quantum feature encoding), scikit-learn (SVM, Random Forest baselines), PyTorch (CNN feature extractors for radiology & hematology arms)
-
-**Explainability:** SHAP, permutation importance, Q-LIME-style quantum attribution
-
-**Dashboard & Visualization:** Streamlit, Plotly / Matplotlib for ROC, confusion matrix, and training-curve visualization
-
-**Data Layer:** Pandas/NumPy preprocessing pipeline, modular `load_data()` adapters per modality and per disease domain
-
-**Hardware Backends:** `default.qubit` simulator (current), Qiskit IBMQ and AWS Braket (NISQ deployment path)
-
-## Getting Started
-
-### Prerequisites
-- Python 3.10+
-- pip or conda
-- (Optional) Access credentials for a NISQ backend (Qiskit IBMQ / AWS Braket) if running on real quantum hardware
-
-### Installation
+## Run it
 
 ```bash
-# Clone the repository
-git clone https://github.com/MishraLtd/QuantumHeal.git
-cd QuantumHeal
-
-# Install dependencies
 pip install -r requirements.txt
+python hybrid_qml_mvp.py        # trains + benchmarks, writes mvp_outputs/
+streamlit run dashboard.py      # launches the clinician dashboard
 ```
 
-### Running the Platform
+## Sample result from a reference run
+
+| Model | Accuracy | Sensitivity | Specificity | AUC |
+|---|---|---|---|---|
+| Hybrid VQC (Quantum, 4 qubits) | 92.3% | 81.1% | 98.9% | 0.984 |
+| Classical SVM (RBF) | 96.5% | 90.6% | 100% | 0.998 |
+| Random Forest | 96.5% | 92.5% | 98.9% | 0.996 |
+
+**Honest read for judges:** on this small, already-easy benchmark, the classical
+baselines currently edge out the 4-qubit quantum model — expected, since classical
+SVMs are near-optimal on this dataset and today's simulators/NISQ hardware limit
+circuit depth and qubit count. The quantum model's AUC (0.984) is nonetheless
+competitive, showing the entangling feature map is learning real structure. The
+platform's value case is forward-looking: as qubit counts and coherence improve,
+the *same* pipeline scales to higher-dimensional, more complex biomarker spaces
+(e.g. full genomic panels) where classical kernels are expected to struggle more —
+which is exactly the regime hybrid QML research targets.
+
+## Multimodal upgrade — 3-phase plan
+
+The single-tabular-dataset MVP above is being extended into a multimodal
+platform (tabular + imaging, with more modalities and hardening to follow).
+Work is broken into three phases so each one ships something demoable:
+
+| Phase | Scope | Status |
+|---|---|---|
+| **Phase 1** | Imaging modality added (X-ray-style), classical feature extraction (radiomics + HOG stand-in for a CNN embedding), independent imaging VQC arm, late-fusion combiner, missing-modality graceful degradation, multimodal dashboard tab | ✅ **Done** (this update) |
+| **Phase 2** | Swap synthetic X-rays for a real dataset once reachable (NIH ChestX-ray14 / pneumonia set); swap HOG/radiomics for a pretrained CNN (ResNet/DenseNet) embedding; add blood-cell-morphology arm; SHAP (classical) + Q-LIME (quantum) explainability; attention-based fusion; uncertainty via shot-based confidence | ⚙️ **In progress** — see below |
+| **Phase 3** | REST API for EHR integration; NISQ-ready backend switching; federated-deployment architecture; DPDP/HIPAA compliance notes; quantum-GAN augmentation | ⚙️ **Partly built** — API + backend switch built & tested; federated, compliance, QGAN are design docs only (`docs/`) |
+
+### Phase 2 — progress so far
+
+**Blocked, and worth knowing about:** this sandbox cannot reach either real
+medical-imaging dataset hosts (zenodo.org — confirmed via a direct 403 when
+testing MedMNIST's PneumoniaMNIST download) or pretrained-model-weight hosts
+(torchvision's model zoo). Both the "real dataset" and "pretrained CNN
+backbone" parts of the original Phase 2 scope are on hold until either (a)
+real imaging data is uploaded directly, or (b) this environment's network
+allowlist is widened. Everything below was built to make that swap a
+data-loader change only, not an architecture change.
+
+Shipped this slice:
+- `cnn_embedding.py` — a small CNN trained from scratch (no pretrained
+  weights available) whose penultimate layer is the imaging embedding,
+  replacing Phase 1's handcrafted HOG/radiomics features. **Result: the
+  learned CNN embedding materially outperforms the handcrafted features on
+  the same synthetic task (97.2% vs. 86.0% accuracy)** — see
+  `mvp_outputs/phase2_benchmark_report.md` for the full comparison and an
+  explicit caveat about not over-reading synthetic-data numbers.
+- `explainability_phase2.py` —
+  - SHAP (`TreeExplainer`) on the classical Random Forest baseline,
+    directly comparable to the existing quantum permutation-importance
+    chart for a classical-vs-quantum explainability story.
+  - Shot-based uncertainty quantification: re-samples the trained quantum
+    circuit under finite shots (mimicking real NISQ hardware noise) to get
+    a per-patient confidence spread instead of one deterministic number —
+    a genuinely quantum-native "how sure is the model" signal.
+- `train_phase2.py` — end-to-end script tying the above together; writes
+  `phase2_benchmark_report.md`, `phase2_embedding_comparison` results,
+  `shap_rf_importance.png`, `uncertainty_scatter.png` to `mvp_outputs/`.
+
+Still open in Phase 2: real dataset swap-in (pending data/network), blood-
+cell-morphology arm, attention-based fusion, full Q-LIME (vs. today's
+shot-based uncertainty stand-in).
+
+### Phase 1 — what was added
+
+- `imaging_arm.py` — synthetic X-ray-style image generator (label-correlated
+  opacity pattern) + `ImageFeaturePipeline` (radiomics-style intensity/edge/
+  entropy stats + coarse HOG → PCA → quantum-angle-scaled features). Fully
+  offline, no downloads, matching the original MVP's demo constraints — see
+  the module docstring for exactly what to swap for real imaging data.
+- `hybrid_qml_mvp.build_vqc_arm()` — generalized the original tabular VQC
+  into a reusable factory so each modality gets its own small, independent
+  quantum circuit.
+- `fusion.py` — `LateFusion`: weighted-average combiner across whichever
+  modalities are present for a given patient, with graceful degradation
+  when one is missing (e.g. no imaging on file).
+- `train_multimodal.py` — end-to-end training + benchmark script for the
+  fused pipeline; writes `mvp_outputs/multimodal_benchmark_report.md` and
+  `multimodal_roc_comparison.png`.
+- `dashboard.py` — new **"🩻 Multimodal Screening"** tab: per-patient fused
+  prediction, per-modality contribution breakdown, and an "imaging on file?"
+  toggle that demonstrates missing-modality degradation live.
+
+**Reference result** (synthetic imaging arm, offline run):
+
+| Model | Accuracy | Sensitivity | Specificity |
+|---|---|---|---|
+| Fused (Tabular + Imaging VQC) | 93.0% | 81.1% | 100% |
+| Tabular VQC only | 92.3% | 81.1% | 98.9% |
+| Imaging VQC only (synthetic) | 86.0% | 67.9% | 96.7% |
+
+Fusion edges out either single arm — the architecture is doing its job —
+though this is on synthetic imagery, so the honest read is "the plumbing
+works," not "quantum imaging beats classical." Real-data validation is
+Phase 2's job.
+
+### Phase 3 — what exists
+
+**Built and tested**
+- `api.py` — FastAPI service: `GET /health`, `GET /model-info`, `POST /predict`
+  (biomarkers and/or image → fused prediction, per-arm shot-based uncertainty,
+  per-modality contribution, `low_confidence` flag, partial-data warning).
+  Payloads are never stored; audit log keeps only a salted hash of the patient ID.
+  Optional `X-API-Key` via `QHS_API_KEY`.
+- `hybrid_qml_mvp.make_device()` — backend switch (`default.qubit`, `qiskit.aer`,
+  or any PennyLane device) via argument or `QHS_BACKEND`. Verified: Qiskit Aer
+  reproduces the default simulator within shot noise. **Not tested on real IBM /
+  AWS hardware** (no credentials or network access from the build environment).
+- `Dockerfile` for the API.
+
+**Design documents only (nothing implemented)**
+- `docs/FEDERATED_ARCHITECTURE.md`, `docs/COMPLIANCE.md` (not legal advice),
+  `docs/QGAN_AUGMENTATION.md`.
 
 ```bash
-# Run the full pipeline: ingestion, fusion, quantum encoding, training, benchmarking
-python hybrid_qml_mvp.py
-
-# Launch the clinician-facing dashboard
-streamlit run dashboard.py
+uvicorn api:app --port 8000          # trains both arms at startup (~1 min)
+curl -s localhost:8000/health
+# /docs gives an interactive Swagger UI for POST /predict
 ```
 
-The dashboard will start on `http://localhost:8501`.
+## Older scaling notes (superseded by the phase table above, kept for reference)
 
-## Project Structure
-
-```
-├── data/                     # Modality adapters — structured, radiology, hematology loaders
-├── models/
-│   ├── quantum/               # VQC, quantum feature encoding, circuit definitions
-│   ├── classical/              # SVM, Random Forest baseline models
-│   └── extractors/             # CNN feature extractors (radiology, hematology arms)
-├── fusion/                    # Late-fusion and attention-fusion modules
-├── explainability/             # SHAP, permutation, and quantum attribution modules
-├── mvp_outputs/                 # Generated benchmark reports, ROC curves, confusion matrices
-├── dashboard.py                # Streamlit clinician dashboard
-├── hybrid_qml_mvp.py            # Core pipeline entrypoint
-└── requirements.txt              # Pinned dependencies
-```
-
-## Future Integrations & Roadmap
-
-- **Large-Scale Medical Dataset Training** — expanding beyond initial benchmark datasets to large, diverse, clinically-sourced datasets (genomic panels, hospital EHR archives, multi-institution imaging repositories) to substantially improve model precision, sensitivity, and generalization across patient populations.
-- **NISQ Hardware Deployment** — moving benchmark and inference runs from simulators onto real quantum hardware (Qiskit IBMQ, AWS Braket) as qubit counts and coherence times improve.
-- **Multi-Disease Expansion** — extending the disease-agnostic pipeline across additional conditions (pneumonia, anemia, cardiac risk, and beyond) via new data adapters.
-- **REST API / EHR Integration** — exposing the trained classifier as a service endpoint for direct integration into hospital information systems.
-- **Federated Deployment Architecture** — enabling multi-hospital deployment where only model weights, never patient data, are shared across institutions.
-- **Compliance & Data Governance** — formal alignment with the DPDP Act (India) and equivalent international standards (e.g., HIPAA) for clinical-grade deployment.
-- **Synthetic Data Augmentation** — quantum-circuit-based generation of synthetic training samples to address the scarcity of large labelled medical imaging datasets.
-- **Continuous Validation** — an ongoing, expanding multi-domain validation report as the platform is trained on progressively larger and more diverse medical datasets.
+- Increase `N_QUBITS` / `N_LAYERS` and move from `default.qubit` to `qiskit.ibmq`
+  or AWS Braket devices for NISQ hardware runs
+- Wrap `vqc_predict` behind a REST endpoint for EHR/hospital-system integration

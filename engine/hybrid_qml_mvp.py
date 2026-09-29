@@ -53,11 +53,8 @@ from sklearn.inspection import permutation_importance
 import pennylane as qml
 from pennylane import numpy as pnp
 
-from pathlib import Path
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-OUT_DIR = PROJECT_ROOT / "outputs"
-OUT_DIR.mkdir(parents=True, exist_ok=True)
+OUT_DIR = "mvp_outputs"
+os.makedirs(OUT_DIR, exist_ok=True)
 
 N_QUBITS = 4          # keep small & NISQ-friendly (qubit-efficient design)
 N_LAYERS = 3           # variational circuit depth
@@ -179,11 +176,25 @@ def vqc_predict(weights, bias, X):
 # lab-panel text, etc.) gets its OWN small quantum circuit — an "arm" —
 # built by this factory, so arms don't share device/wire state. Arms are
 # combined afterwards by fusion.py, not inside the quantum layer itself.
-def build_vqc_arm(n_qubits, n_layers=N_LAYERS, seed=SEED):
+def make_device(n_qubits, backend=None, **backend_kwargs):
+    """Backend-agnostic device factory (Phase 3: NISQ readiness).
+
+    backend=None / "default.qubit"  -> exact PennyLane simulator (default)
+    backend="qiskit.aer"            -> Qiskit Aer simulator (same code path as IBM hardware)
+    backend="qiskit.remote"         -> IBM Quantum hardware (needs `backend=` IBMBackend
+                                       object + credentials via backend_kwargs)
+    backend="braket.aws.qubit"      -> AWS Braket devices (needs device_arn + AWS creds)
+    Also selectable via env var QHS_BACKEND so the API/dashboard need no code change.
+    """
+    backend = backend or os.environ.get("QHS_BACKEND", "default.qubit")
+    return qml.device(backend, wires=n_qubits, **backend_kwargs)
+
+
+def build_vqc_arm(n_qubits, n_layers=N_LAYERS, seed=SEED, backend=None, **backend_kwargs):
     """Returns an independent {train, predict} VQC arm bound to its own
     n_qubits-wide quantum device. Used for e.g. the imaging modality in
     imaging_arm.py, kept separate from the original tabular arm above."""
-    dev_arm = qml.device("default.qubit", wires=n_qubits)
+    dev_arm = make_device(n_qubits, backend, **backend_kwargs)
 
     @qml.qnode(dev_arm)
     def circuit_arm(weights, x):

@@ -7,3 +7,8 @@ streamlit>=1.35
 pandas>=2.2
 torch>=2.2
 shap>=0.45
+fastapi>=0.110
+uvicorn>=0.29
+pydantic>=2.6
+httpx>=0.27
+# optional: Qiskit backend / IBM Quantum (pip install pennylane-qiskit)
