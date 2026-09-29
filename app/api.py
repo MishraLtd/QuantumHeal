@@ -7,7 +7,7 @@ Heavy training libraries are intentionally NOT imported here.
 """
 
 from __future__ import annotations
-
+from pathlib import Path
 import hashlib
 import logging
 import os
@@ -22,6 +22,7 @@ from fastapi import (
     Header,
     HTTPException,
 )
+from fastapi.responses import FileResponse
 
 from fastapi.middleware.cors import (
     CORSMiddleware,
@@ -64,6 +65,9 @@ N_TAB_FEATURES = 30
 
 STATE = {}
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+FRONTEND_FILE = PROJECT_ROOT / "index.html"
+
 
 # -------------------------------------------------------------------
 # Startup
@@ -96,6 +100,19 @@ app = FastAPI(
     version="0.4.0",
     lifespan=lifespan,
 )
+
+
+@app.get("/", include_in_schema=False)
+def frontend():
+    if not FRONTEND_FILE.exists():
+        raise HTTPException(
+            status_code=500,
+            detail="Frontend index.html is missing from the deployment bundle.",
+        )
+    return FileResponse(
+        FRONTEND_FILE,
+        media_type="text/html",
+    )
 
 
 # -------------------------------------------------------------------
