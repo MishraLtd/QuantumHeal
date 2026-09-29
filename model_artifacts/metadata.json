@@ -1,11 +1,13 @@
 {
-  "model_version": "0.3.0-cloud-1",
+  "model_version": "0.4.0-cloud-lightweight",
   "tabular_features": 30,
   "tabular_qubits": 4,
   "imaging_qubits": 4,
+  "cnn_embedding_dim": 4,
   "fusion": "LateFusion",
   "tabular_weight": 0.6,
   "imaging_weight": 0.4,
-  "imaging_dataset": "synthetic",
-  "training_seed": 42
+  "quantum_backend": "default.qubit",
+  "training_seed": 42,
+  "imaging_dataset": "synthetic"
 }
