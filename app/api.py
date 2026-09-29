@@ -28,9 +28,45 @@ IMPORTANT: research prototype. Imaging arm is trained on SYNTHETIC images and
 the tabular arm on the public Wisconsin dataset; not a medical device.
 """
 
+import hashlib
+import logging
+import time
+import pickle
+
+from pathlib import Path
+from contextlib import asynccontextmanager
+from typing import List, Optional
+
+import numpy as np
+import torch
+
+from fastapi import FastAPI, Header, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+
+from sklearn.model_selection import train_test_split
+
+from engine import hybrid_qml_mvp as core
+
+from engine.imaging_arm import (
+    load_synthetic_xrays,
+    IMG_SIZE,
+    N_QUBITS_IMG,
+)
+
+from engine.cnn_embedding import (
+    CNNFeaturePipeline,
+    SmallCNN,
+)
+
+from engine.fusion import LateFusion
+from engine.explainability import build_shot_uncertainty_fn
 import os
 import hashlib
 import logging
+import pickle
+from pathlib import Path
+import torch
 import time
 from contextlib import asynccontextmanager
 from typing import List, Optional
@@ -43,7 +79,7 @@ from sklearn.model_selection import train_test_split
 
 from engine import hybrid_qml_mvp as core
 from engine.imaging_arm import load_synthetic_xrays, IMG_SIZE, N_QUBITS_IMG
-from engine.cnn_embedding import CNNFeaturePipeline
+from engine.cnn_embedding import CNNFeaturePipeline, SmallCNN
 from engine.fusion import LateFusion
 from engine.explainability import build_shot_uncertainty_fn
 
@@ -52,41 +88,167 @@ audit = logging.getLogger("qhs.audit")
 AUDIT_SALT = os.environ.get("QHS_AUDIT_SALT", "change-me-in-production")
 N_TAB_FEATURES = 30
 STATE = {}
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+ARTIFACT_DIR = PROJECT_ROOT / "model_artifacts"
+MODEL_FILE = ARTIFACT_DIR / "qhs_model.pkl"
+CNN_FILE = ARTIFACT_DIR / "qhs_cnn.pt"
 
+def load_model_artifacts():
+    """
+    Load the previously trained QuantumHeal model.
 
-def _train():
-    """Train both arms once at startup (~1 min on CPU)."""
-    X, y, names = core.load_data()
-    idx_tr, _, y_tr, _ = train_test_split(
-        np.arange(len(y)), y, test_size=0.25, random_state=core.SEED, stratify=y)
-    images = load_synthetic_xrays(y, seed=core.SEED)
+    No model training occurs during API startup.
+    """
 
-    X_tr_p, _, scaler, pca = core.preprocess(X[idx_tr], X[idx_tr][:2])
-    tab_scale = np.max(np.abs(pca.transform(scaler.transform(X[idx_tr])))) + 1e-9
-    tab_arm = core.build_vqc_arm(core.N_QUBITS)
-    tw, tb, _ = tab_arm["train"](X_tr_p, y_tr)
+    if not MODEL_FILE.exists():
+        raise FileNotFoundError(
+            f"Model artifact not found: {MODEL_FILE}"
+        )
 
-    cnn = CNNFeaturePipeline(embed_dim=N_QUBITS_IMG)
-    Z_tr = cnn.fit_transform(images[idx_tr], y_tr)
-    img_arm = core.build_vqc_arm(N_QUBITS_IMG)
-    iw, ib, _ = img_arm["train"](Z_tr, y_tr)
+    if not CNN_FILE.exists():
+        raise FileNotFoundError(
+            f"CNN artifact not found: {CNN_FILE}"
+        )
 
-    STATE.update(
-        feature_names=list(names), scaler=scaler, pca=pca, tab_scale=tab_scale,
-        tab_arm=tab_arm, tw=tw, tb=tb, cnn=cnn, img_arm=img_arm, iw=iw, ib=ib,
-        fusion=LateFusion(),
-        tab_unc=build_shot_uncertainty_fn(core.N_QUBITS, shots=200, n_repeats=10),
-        img_unc=build_shot_uncertainty_fn(N_QUBITS_IMG, shots=200, n_repeats=10),
-        backend=os.environ.get("QHS_BACKEND", "default.qubit"),
-        trained_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    print("Loading QuantumHeal model artifacts...")
+
+    # ---------------------------------------------------------
+    # Load saved model data
+    # ---------------------------------------------------------
+    with open(MODEL_FILE, "rb") as f:
+        saved = pickle.load(f)
+
+    backend = os.environ.get(
+        "QHS_BACKEND",
+        "default.qubit"
     )
+
+    # ---------------------------------------------------------
+    # Rebuild quantum circuits
+    # ---------------------------------------------------------
+    tab_arm = core.build_vqc_arm(
+        n_qubits=core.N_QUBITS,
+        backend=backend,
+    )
+
+    img_arm = core.build_vqc_arm(
+        n_qubits=N_QUBITS_IMG,
+        backend=backend,
+    )
+
+    # ---------------------------------------------------------
+    # Rebuild CNN architecture
+    # ---------------------------------------------------------
+    cnn = CNNFeaturePipeline(
+        embed_dim=N_QUBITS_IMG
+    )
+
+    cnn.model = SmallCNN(
+        embed_dim=N_QUBITS_IMG
+    )
+
+    cnn.model.load_state_dict(
+        torch.load(
+            CNN_FILE,
+            map_location="cpu"
+        )
+    )
+
+    cnn.model.eval()
+
+    # ---------------------------------------------------------
+    # Fusion
+    # ---------------------------------------------------------
+    fusion = LateFusion(
+        weights=saved.get(
+            "fusion_weights",
+            {
+                "tabular": 0.6,
+                "imaging": 0.4,
+            },
+        )
+    )
+
+    # ---------------------------------------------------------
+    # Shot-based uncertainty
+    # ---------------------------------------------------------
+    tab_unc = build_shot_uncertainty_fn(
+        core.N_QUBITS,
+        shots=200,
+        n_repeats=10,
+    )
+
+    img_unc = build_shot_uncertainty_fn(
+        N_QUBITS_IMG,
+        shots=200,
+        n_repeats=10,
+    )
+
+    # ---------------------------------------------------------
+    # Global inference state
+    # ---------------------------------------------------------
+    STATE.clear()
+
+    STATE.update({
+        "feature_names":
+            saved["feature_names"],
+
+        "scaler":
+            saved["scaler"],
+
+        "pca":
+            saved["pca"],
+
+        "tab_scale":
+            saved["tab_scale"],
+
+        "tab_arm":
+            tab_arm,
+
+        "tw":
+            saved["tab_weights"],
+
+        "tb":
+            saved["tab_bias"],
+
+        "cnn":
+            cnn,
+
+        "img_arm":
+            img_arm,
+
+        "iw":
+            saved["img_weights"],
+
+        "ib":
+            saved["img_bias"],
+
+        "fusion":
+            fusion,
+
+        "tab_unc":
+            tab_unc,
+
+        "img_unc":
+            img_unc,
+
+        "backend":
+            backend,
+
+        "trained_at":
+            saved.get(
+                "trained_at",
+                "artifact-export"
+            ),
+    })
+
+    print("QuantumHeal model loaded successfully.")
 
 
 @asynccontextmanager
 async def lifespan(app):
-    _train()
+    load_model_artifacts()
     yield
-
 
 app = FastAPI(title="QuantumHealth Sentinel API", version="0.3.0", lifespan=lifespan)
 app.add_middleware(
@@ -126,12 +288,12 @@ def _check_key(x_api_key):
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
-@app.get("/health")
+@app.get("/api/health")
 def health():
     return {"status": "ok" if STATE else "loading", "model_ready": bool(STATE)}
 
 
-@app.get("/model-info")
+@app.get("/api/model-info")
 def model_info():
     return {
         "version": app.version,
@@ -146,7 +308,7 @@ def model_info():
     }
 
 
-@app.post("/predict", response_model=PredictResponse)
+@app.post("/api/predict", response_model=PredictResponse)
 def predict(req: PredictRequest, x_api_key: Optional[str] = Header(None)):
     _check_key(x_api_key)
     if req.biomarkers is None and req.image is None:
